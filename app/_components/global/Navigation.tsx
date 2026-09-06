@@ -2,13 +2,14 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { MagnifyingGlassIcon, ScalesIcon, ShoppingCartIcon } from '@phosphor-icons/react/dist/ssr';
+import { ListIcon, MagnifyingGlassIcon, ScalesIcon, ShoppingCartIcon } from '@phosphor-icons/react/dist/ssr';
 import { useListaStore } from '@/app/_store/store';
 
 const CLAVE_VISTO = 'lalista-comparar-visto';
 
 export default function Navigation() {
   const totalEnLista = useListaStore((state) => state.lista.length);
+  const user = useListaStore((state) => state.user);
   const pathname = usePathname();
 
   const [flashColor, setFlashColor] = useState<'up' | 'down' | null>(null);
@@ -87,8 +88,8 @@ export default function Navigation() {
     flashColor === 'up'
       ? 'bg-green-500'
       : flashColor === 'down'
-      ? 'bg-red-500'
-      : 'bg-primary-400';
+        ? 'bg-red-500'
+        : 'bg-primary-400';
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-accent-300 py-2 px-6 z-50 md:hidden shadow-[0_-4px_12px_rgba(0,0,0,0.03)]">
@@ -132,6 +133,16 @@ export default function Navigation() {
             />
           )}
         </Link>
+
+        {user && (
+          <Link
+            href="/mis-listas"
+            className={`flex flex-col items-center gap-0.5 transition ${isActive('/mis-listas') ? 'text-primary-400' : 'text-slate-400 hover:text-primary-500'}`}
+          >
+            <ListIcon className="w-6 h-6" weight={isActive('/mis-listas') ? 'fill' : 'light'} />
+            <span className="text-[10px] font-semibold font-sans">Mis listas</span>
+          </Link>
+        )}
       </div>
     </nav>
   );
