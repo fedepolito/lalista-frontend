@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useListaStore } from '@/app/_store/store';
 import { useMisListas } from './_hooks/useMisListas';
 import { useAbrirLista } from './_hooks/useAbrirLista';
@@ -138,7 +139,7 @@ export default function MisListasPage() {
                 <div className="flex flex-col items-center justify-center py-16 gap-2 text-center text-slate-400 px-4">
                     <span className="text-4xl">🛒</span>
                     <p className="text-sm font-medium">Todavía no guardaste ninguna lista.</p>
-                    <p className="text-xs">Andá a <strong className="text-orange-500">Mi lista</strong> y guardala en la nube.</p>
+                    <p className="text-xs">Andá a <Link href="/mi-lista" className="font-bold text-orange-500 underline underline-offset-2 hover:text-orange-600">Mi lista</Link> y guardala en la nube.</p>
                 </div>
             )}
 
@@ -148,8 +149,8 @@ export default function MisListasPage() {
                         <div
                             key={lista.id}
                             className={`flex flex-col gap-3 rounded-2xl border px-4 py-4 shadow-sm transition-colors ${lista.id === listaIdActiva
-                                    ? 'border-orange-300 bg-orange-50/40 ring-1 ring-orange-200'
-                                    : 'border-slate-200 bg-white'
+                                ? 'border-orange-300 bg-orange-50/40 ring-1 ring-orange-200'
+                                : 'border-slate-200 bg-white'
                                 }`}
                         >
                             <div className="flex items-center justify-between gap-3">
@@ -159,8 +160,8 @@ export default function MisListasPage() {
                                     className="flex min-w-0 flex-1 items-center gap-3 text-left transition-opacity hover:opacity-75 disabled:opacity-50"
                                 >
                                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${lista.id === listaIdActiva
-                                            ? 'bg-orange-100 text-orange-600'
-                                            : 'bg-slate-100 text-slate-500'
+                                        ? 'bg-orange-100 text-orange-600'
+                                        : 'bg-slate-100 text-slate-500'
                                         }`}>
                                         <ListIcon size={20} weight="regular" />
                                     </div>
