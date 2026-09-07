@@ -13,6 +13,21 @@ export const runtime = 'nodejs';
 
 const app = new Hono().basePath('/api');
 
+app.onError((err, c) => {
+  console.error('[API ERROR]', {
+    timestamp: new Date().toISOString(),
+    method: c.req.method,
+    path: c.req.path,
+    status: 500,
+    error: err.message,
+  });
+
+  return c.json(
+    { error: 'Error interno del servidor' },
+    500
+  );
+});
+
 // ==========================================
 // 1. ESCUDO ANTI-DDOS (Rate Limiter)
 // ==========================================
