@@ -16,6 +16,11 @@ export interface SupermercadoChanguito {
 export interface PuntoMensual {
   mes: string; // 'YYYY-MM'
   precioTotal: number;
+  /** Cuántos productos del changuito se encontraron en ese supermercado ese
+   * mes. Sin esto, un supermercado al que le faltan productos parece más
+   * barato que el resto solo porque suma menos cosas. Opcional: los
+   * changuitos guardados antes de este cambio no lo tienen. */
+  productosEncontrados?: number;
 }
 
 export interface HistorialSupermercado {

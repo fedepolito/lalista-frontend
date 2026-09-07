@@ -37,14 +37,29 @@ export function ResumenCanasta({ changuito }: ResumenCanastaProps) {
         ))}
       </div>
 
-      <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-200 pt-3">
+            <div className="mt-3 flex flex-col gap-1.5 border-t border-slate-200 pt-3">
         {changuito.supermercados.map((s) => {
           const historial = changuito.historialPorSupermercado.find((h) => h.clave === s.clave);
           const ultimo = historial?.puntos.at(-1);
+          const totalProductos = changuito.productos.length;
+          // Los changuitos guardados antes de este cambio no tienen el dato,
+          // así que solo avisamos cuando sabemos que falta algo.
+          const faltan =
+            ultimo?.productosEncontrados !== undefined &&
+            ultimo.productosEncontrados < totalProductos;
           return (
-            <div key={s.clave} className="flex items-center justify-between text-xs sm:text-sm">
-              <p className="font-bold text-slate-500">{s.cadena}</p>
-              <p className="font-black text-slate-900">${formatearPrecio(ultimo?.precioTotal ?? 0)}</p>
+            <div key={s.clave} className="flex items-center justify-between gap-3 text-xs sm:text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-bold text-slate-500">{s.cadena}</p>
+                {faltan && (
+                  <p className="text-[10px] font-medium text-orange-500">
+                    Solo {ultimo.productosEncontrados} de {totalProductos} productos
+                  </p>
+                )}
+              </div>
+              <p className="shrink-0 font-black text-slate-900">
+                ${formatearPrecio(ultimo?.precioTotal ?? 0)}
+              </p>
             </div>
           );
         })}

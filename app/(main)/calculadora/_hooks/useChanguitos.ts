@@ -100,34 +100,45 @@ export function useChanguitos() {
     [changuitos, persistir],
   );
 
-  /** Agrega (o actualiza, si ya hay uno de este mes) un punto para un supermercado puntual. */
-  const registrarPunto = useCallback((changuitoId: string, claveSupermercado: string, precioTotal: number) => {
-    setChanguitos((actuales) => {
-      const mes = mesActual();
-      const nuevos = actuales.map((ch) => {
-        if (ch.id !== changuitoId) return ch;
-        const historialPorSupermercado = ch.historialPorSupermercado.map((h) => {
-          if (h.clave !== claveSupermercado) return h;
-          const puntos = [...h.puntos];
-          const ultimo = puntos.at(-1);
-          if (ultimo && ultimo.mes === mes) {
-            puntos[puntos.length - 1] = { mes, precioTotal };
-          } else {
-            puntos.push({ mes, precioTotal });
-          }
-          return { ...h, puntos };
+  /** Agrega (o actualiza, si ya hay uno de este mes) un punto para un
+   * supermercado puntual. `productosEncontrados` se guarda junto al total
+   * para poder avisar cuando un supermercado no tiene todos los productos
+   * del changuito (si no, parece más barato solo porque suma menos). */
+  const registrarPunto = useCallback(
+    (
+      changuitoId: string,
+      claveSupermercado: string,
+      precioTotal: number,
+      productosEncontrados: number,
+    ) => {
+      setChanguitos((actuales) => {
+        const mes = mesActual();
+        const nuevos = actuales.map((ch) => {
+          if (ch.id !== changuitoId) return ch;
+          const historialPorSupermercado = ch.historialPorSupermercado.map((h) => {
+            if (h.clave !== claveSupermercado) return h;
+            const puntos = [...h.puntos];
+            const ultimo = puntos.at(-1);
+            if (ultimo && ultimo.mes === mes) {
+              puntos[puntos.length - 1] = { mes, precioTotal, productosEncontrados };
+            } else {
+              puntos.push({ mes, precioTotal, productosEncontrados });
+            }
+            return { ...h, puntos };
+          });
+          return { ...ch, historialPorSupermercado };
         });
-        return { ...ch, historialPorSupermercado };
-      });
 
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
-      } catch {
-        
-      }
-      return nuevos;
-    });
-  }, []);
+        try {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
+        } catch {
+          
+        }
+        return nuevos;
+      });
+    },
+    [],
+  );
 
   /** Borra un changuito (y su historial) de forma definitiva. Si era el
    * seleccionado, pasa a seleccionar el que quedó más reciente (o ninguno). */
