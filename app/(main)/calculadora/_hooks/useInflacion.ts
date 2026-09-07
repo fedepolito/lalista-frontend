@@ -27,7 +27,10 @@ function puntosMensualesAPorcentaje(puntos: { mes: string; precioTotal: number }
  * resuelve `useHistoricoProvincia` por separado, con el promedio por
  * provincia.
  */
-export function useInflacion(changuito: Changuito | null, registrarPunto: (id: string, clave: string, total: number) => void) {
+export function useInflacion(
+  changuito: Changuito | null,
+  registrarPunto: (id: string, clave: string, total: number, productosEncontrados: number) => void,
+) {
   const ubicacion = useListaStore((state) => state.ubicacion);
   const sucursalesIds = useListaStore((state) => state.sucursalesIds);
   const [hidratado, setHidratado] = useState(false);
@@ -103,14 +106,21 @@ export function useInflacion(changuito: Changuito | null, registrarPunto: (id: s
 
         for (const super_ of changuito.supermercados) {
           let total = 0;
+          let encontrados = 0;
           for (const p of changuito.productos) {
             const fresco = productosFrescos.find((pf) => pf.id === p.id);
             const sucursal = fresco?.sucursales.find(
               (s) => s.id_comercio === super_.idComercio && s.id_bandera === super_.idBandera,
             );
-            if (sucursal) total += sucursal.precio * p.cantidad;
+            if (sucursal) {
+              total += sucursal.precio * p.cantidad;
+              encontrados += 1;
+            }
           }
-          if (total > 0) registrarPunto(changuito.id, super_.clave, total);
+          // `encontrados` se guarda junto al total: sin ese dato, un
+          // supermercado al que le faltan productos parece más barato que
+          // el resto solo porque suma menos cosas.
+          if (total > 0) registrarPunto(changuito.id, super_.clave, total, encontrados);
         }
       })
       .catch(() => {

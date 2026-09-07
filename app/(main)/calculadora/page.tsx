@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowsClockwiseIcon,
   ChartLineUpIcon,
@@ -47,20 +47,30 @@ export default function CalculadoraPage() {
   // del gráfico de histórico SEPA.
   useInflacion(changuitoSeleccionado, registrarPunto);
 
-  const {
-    series: seriesProductosIndec,
-    cargando: cargandoIndecProductos,
-    aclaraciones: aclaracionesProductosIndec,
-  } = useHistoricoProductosIndec(changuitoSeleccionado);
-
-  // Histórico SEPA promediado entre TODOS los supermercados de tu
-  // provincia (no restringido a los 3 más baratos de este changuito) —
-  // mucha más cobertura de meses con datos.
+    // Histórico SEPA promediado entre TODOS los supermercados de bs. as.
   const {
     porProducto: seriesPorProductoProvincia,
     total: serieTotalProvincia,
+    indecGeneral: serieIndecGeneral,
     cargando: cargandoHistoricoReal,
   } = useHistoricoProvincia(changuitoSeleccionado);
+
+  // Rango de meses que cubre el histórico SEPA — se lo pasamos al INDEC
+  // para que las dos secciones muestren el MISMO tramo de tiempo y se
+  // puedan comparar de un vistazo (el INDEC publica desde 2016, y sin
+  // recortar la línea se ve mucho más "explosiva" solo por abarcar más).
+  const rangoSepa = useMemo(() => {
+    const fechas = seriesPorProductoProvincia.flatMap((s) => s.puntos.map((p) => p.fecha.slice(0, 7)));
+    if (!fechas.length) return null;
+    return { desde: fechas.reduce((a, b) => (a < b ? a : b)), hasta: fechas.reduce((a, b) => (a > b ? a : b)) };
+  }, [seriesPorProductoProvincia]);
+
+    const {
+    series: seriesProductosIndec,
+    cargando: cargandoIndecProductos,
+    categoriaPorProducto,
+    aclaraciones: aclaracionesProductosIndec,
+  } = useHistoricoProductosIndec(changuitoSeleccionado, rangoSepa);
 
   // 'total' = changuito completo (un solo número combinado). 'todos' = una
   // línea por producto. Cualquier otro valor es el id de un producto puntual.
@@ -72,7 +82,11 @@ export default function CalculadoraPage() {
     setVista('todos');
   }, [changuitoSeleccionado?.id]);
 
-  const serieIndecProducto = seriesProductosIndec.find((s) => s.id === vista);
+    // La serie del INDEC ahora está agrupada por categoría, así que para un
+  // producto puntual hay que traducir primero su id al de su categoría.
+  const serieIndecProducto = seriesProductosIndec.find(
+    (s) => s.id === categoriaPorProducto.get(vista),
+  );
   const aclaracionIndecProducto = aclaracionesProductosIndec.find((a) => a.productoId === vista);
 
   const nombreProductoSeleccionado = changuitoSeleccionado?.productos.find((p) => p.id === vista)?.nombre;
@@ -199,7 +213,7 @@ export default function CalculadoraPage() {
                       : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                   }`}
                 >
-                  Changuito completo
+                  Total
                 </button>
                 <button
                   type="button"
@@ -210,7 +224,7 @@ export default function CalculadoraPage() {
                       : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
                   }`}
                 >
-                  Todos los productos
+                  Por producto
                 </button>
                 {changuitoSeleccionado.productos.map((p) => (
                   <button
@@ -278,20 +292,37 @@ export default function CalculadoraPage() {
 
               {/* Gráfico 2: según el INDEC — separado, es otra fuente de
                   datos (el índice oficial de inflación, no un
-                  supermercado puntual). En "Todos los productos" muestra
-                  una línea por cada producto que matchea alguna categoría
-                  INDEC; en un producto puntual, solo la de ese producto. */}
+                  supermercado puntual).
+                  - "Changuito completo": el IPC Nivel General (la
+                    inflación oficial), recortado al mismo tramo de meses
+                    que el gráfico de arriba, para poder responder "¿mi
+                    changuito subió más o menos que la inflación?".
+                  - "Todos los productos": una línea por cada producto que
+                    matchea alguna categoría INDEC.
+                  - Producto puntual: solo la categoría de ese producto. */}
               <div className="mb-8">
                 <h2 className="mb-1 px-1 text-sm font-black text-slate-900 sm:text-base">Según el INDEC</h2>
                 <p className="mb-3 px-1 text-[11px] text-slate-400">
-                  {vista === 'total' || vista === 'todos'
-                    ? 'Evolución oficial de las categorías del INDEC más parecidas a los productos de tu changuito — no es tu marca exacta, es la categoría genérica más cercana.'
-                    : serieIndecProducto
-                      ? 'Evolución oficial de la categoría más parecida que publica el INDEC — no es tu marca exacta, es la categoría genérica más cercana.'
-                      : 'Referencia de precios: cómo evolucionó, según el INDEC, la categoría genérica más parecida a este producto.'}
+                  {vista === 'total'
+                    ? 'Inflación oficial (IPC Nivel General del INDEC) en el mismo período que el gráfico de arriba — mide todos los rubros, no solo alimentos, pero es la referencia con la que se compara habitualmente.'
+                    : vista === 'todos'
+                      ? 'Evolución oficial de las categorías del INDEC más parecidas a los productos de tu changuito — no es tu marca exacta, es la categoría genérica más cercana.'
+                      : serieIndecProducto
+                        ? 'Evolución oficial de la categoría más parecida que publica el INDEC — no es tu marca exacta, es la categoría genérica más cercana.'
+                        : 'Referencia de precios: cómo evolucionó, según el INDEC, la categoría genérica más parecida a este producto.'}
                 </p>
 
-                {vista === 'total' || vista === 'todos' ? (
+                {vista === 'total' ? (
+                  serieIndecGeneral ? (
+                    <GraficoInflacion series={[serieIndecGeneral]} height={200} />
+                  ) : cargandoHistoricoReal ? (
+                    <p className="px-1 text-xs text-slate-400">Cargando…</p>
+                  ) : (
+                    <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-xs text-slate-400">
+                      No se pudo traer el índice general del INDEC para este período.
+                    </p>
+                  )
+                ) : vista === 'todos' ? (
                   seriesProductosIndec.length > 0 ? (
                     <>
                       <GraficoInflacion series={seriesProductosIndec} height={200} />

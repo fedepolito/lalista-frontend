@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useListaStore } from '@/app/_store/store';
 import { obtenerCodigoProvincia } from '../_lib/provincias';
+import { obtenerSerieIndecDesde } from '../_lib/indec';
 import type { Changuito, PuntoMensual } from '../_types/changuito';
 import type { PuntoSerie, SerieInflacion } from '../_types/inflacion';
 
 interface FilaHistoricoSepa {
   periodo: string; // "YYYY-MM-DD"
   id_producto: string;
-  precio_lista_mediana: number;
+  precio_promedio_mensual: number;
 }
 
 interface RespuestaHistorico {
@@ -23,6 +24,7 @@ const COLORES_PRODUCTO = [
   'var(--color-sky-600)',
 ];
 const COLOR_TOTAL = 'var(--color-accent-600)';
+const COLOR_INDEC = 'var(--color-sky-600)';
 
 function puntosMensualesAPorcentaje(puntos: PuntoMensual[]): PuntoSerie[] {
   if (!puntos.length) return [];
@@ -35,9 +37,9 @@ function puntosMensualesAPorcentaje(puntos: PuntoMensual[]): PuntoSerie[] {
 
 /**
  * Histórico SEPA de los productos del changuito, promediado entre TODOS
- * los supermercados de tu provincia. Esto le da muchísima más cobertura de meses: alcanza con
- * que CUALQUIER supermercado de la provincia haya reportado el producto
- * ese mes, no uno puntual.
+ * los supermercados de tu provincia. Esto le da muchísima más cobertura de
+ * meses: alcanza con que CUALQUIER supermercado de la provincia haya
+ * reportado el producto ese mes, no uno puntual.
  *
  * Devuelve:
  * - `porProducto`: una línea por producto (precio promedio mensual de ESE
@@ -47,10 +49,14 @@ function puntosMensualesAPorcentaje(puntos: PuntoMensual[]): PuntoSerie[] {
  *   los meses en los que TODOS los productos tienen promedio disponible
  *   (si falta uno, se descarta ese mes, para no distorsionar la
  *   comparación) — para la vista "Changuito completo".
+ * - `indecGeneral`: el IPC Nivel General del INDEC recortado al MISMO
+ *   tramo de meses que `total`, para poder compararlos en el mismo eje
+ *   ("¿mi changuito subió más o menos que la inflación oficial?").
  */
 export function useHistoricoProvincia(changuito: Changuito | null): {
   porProducto: SerieInflacion[];
   total: SerieInflacion | null;
+  indecGeneral: SerieInflacion | null;
   cargando: boolean;
 } {
   const nombreLugar = useListaStore((state) => state.ubicacion.nombreLugar);
@@ -58,6 +64,7 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
 
   const [porProducto, setPorProducto] = useState<SerieInflacion[]>([]);
   const [total, setTotal] = useState<SerieInflacion | null>(null);
+  const [indecGeneral, setIndecGeneral] = useState<SerieInflacion | null>(null);
   const [cargando, setCargando] = useState(false);
 
   const firmaProductos = changuito?.productos.map((p) => p.id).join(',') ?? '';
@@ -66,6 +73,7 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
     if (!changuito || !codigoProvincia || !changuito.productos.length) {
       setPorProducto([]);
       setTotal(null);
+      setIndecGeneral(null);
       return;
     }
     let vigente = true;
@@ -75,7 +83,7 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
       `/api/historico-precios?ids_productos=${encodeURIComponent(firmaProductos)}&provincia=${encodeURIComponent(codigoProvincia)}`,
     )
       .then((res) => (res.ok ? (res.json() as Promise<RespuestaHistorico>) : { historico: [] }))
-      .then((data) => {
+      .then(async (data) => {
         if (!vigente) return;
         const filas = data.historico ?? [];
 
@@ -86,7 +94,7 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
           if (!acumulado.has(fila.id_producto)) acumulado.set(fila.id_producto, new Map());
           const porMes = acumulado.get(fila.id_producto)!;
           const actual = porMes.get(mes) ?? { suma: 0, cantidad: 0 };
-          actual.suma += fila.precio_lista_mediana;
+          actual.suma += fila.precio_promedio_mensual;
           actual.cantidad += 1;
           porMes.set(mes, actual);
         }
@@ -134,16 +142,16 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
         }
 
         let nuevoTotal: SerieInflacion | null = null;
+        let mesesTotalOrdenados: string[] = [];
         if (mesesComunes.size && changuito.productos.length) {
-          const puntosTotal: PuntoMensual[] = Array.from(mesesComunes)
-            .sort()
-            .map((mes) => {
-              const precioTotal = changuito.productos.reduce((suma, p) => {
-                const promedio = promedioPorProductoYMes.get(p.id)?.get(mes) ?? 0;
-                return suma + promedio * p.cantidad;
-              }, 0);
-              return { mes, precioTotal };
-            });
+          mesesTotalOrdenados = Array.from(mesesComunes).sort();
+          const puntosTotal: PuntoMensual[] = mesesTotalOrdenados.map((mes) => {
+            const precioTotal = changuito.productos.reduce((suma, p) => {
+              const promedio = promedioPorProductoYMes.get(p.id)?.get(mes) ?? 0;
+              return suma + promedio * p.cantidad;
+            }, 0);
+            return { mes, precioTotal };
+          });
           nuevoTotal = {
             id: 'total',
             nombre: 'Tu changuito',
@@ -157,11 +165,44 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
         setPorProducto(nuevasSeries);
         setTotal(nuevoTotal);
         setCargando(false);
+
+        // INDEC Nivel General, recortado al MISMO tramo de meses que el
+        // total del changuito. Va después de pintar el gráfico (no lo
+        // bloquea) y si falla, simplemente no se muestra esa línea.
+        if (!mesesTotalOrdenados.length) {
+          setIndecGeneral(null);
+          return;
+        }
+        const mesDesde = mesesTotalOrdenados[0];
+        const mesHasta = mesesTotalOrdenados.at(-1)!;
+        try {
+          const puntosIndec = await obtenerSerieIndecDesde(`${mesDesde}-01`);
+          if (!vigente) return;
+          // Recortamos también por arriba: el INDEC publica meses que el
+          // SEPA todavía no tiene (o al revés), y si no los cortamos las
+          // dos líneas terminarían en fechas distintas.
+          const recortados = puntosIndec.filter((p) => p.fecha.slice(0, 7) <= mesHasta);
+          setIndecGeneral(
+            recortados.length
+              ? {
+                  id: 'indec-general',
+                  nombre: 'INDEC (nivel general)',
+                  color: COLOR_INDEC,
+                  estiloLinea: 'punteado',
+                  puntos: recortados,
+                  visible: true,
+                }
+              : null,
+          );
+        } catch {
+          if (vigente) setIndecGeneral(null);
+        }
       })
       .catch(() => {
         if (!vigente) return;
         setPorProducto([]);
         setTotal(null);
+        setIndecGeneral(null);
         setCargando(false);
       });
 
@@ -171,5 +212,5 @@ export function useHistoricoProvincia(changuito: Changuito | null): {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [changuito?.id, codigoProvincia, firmaProductos]);
 
-  return { porProducto, total, cargando };
+  return { porProducto, total, indecGeneral, cargando };
 }

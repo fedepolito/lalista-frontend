@@ -67,3 +67,11 @@ export async function obtenerSerieIndec(fechaInicioISO: string): Promise<PuntoSe
 export async function obtenerHistoricoCompletoIndec(seriesId: string): Promise<PuntoSerie[]> {
   return traerSerieIndec(seriesId);
 }
+
+/** Trae la serie de IPC Nivel General del INDEC desde una fecha puntual
+ * (o toda la historia si no se pasa ninguna) — se usa para comparar el
+ * changuito completo contra la inflación oficial en el mismo tramo de
+ * meses que el histórico SEPA. */
+export async function obtenerSerieIndecDesde(fechaInicioISO?: string): Promise<PuntoSerie[]> {
+  return traerSerieIndec(SERIE_INDEC_IPC, fechaInicioISO);
+}

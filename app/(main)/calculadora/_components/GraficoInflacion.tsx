@@ -20,10 +20,13 @@ const formatearMes = (fechaISO: string) => {
   return texto.charAt(0).toUpperCase() + texto.slice(1).replace('.', '');
 };
 
-/** Redondea el techo del eje Y a un número "prolijo" (10, 20, 25, 50, 100...). */
-function calcularEjeY(valorMax: number) {
-  if (valorMax <= 0) return { max: 10, paso: 2 };
-  const pasoBruto = valorMax / 4;
+/** Redondea el eje Y a números "prolijos" (10, 20, 25, 50, 100...). */
+function calcularEjeY(valorMin: number, valorMax: number) {
+  // Si toda la serie es plana o vacía, damos un rango mínimo usable.
+  if (valorMax === valorMin) return { min: Math.min(0, valorMin), max: valorMax + 10, paso: 2 };
+
+  const rango = valorMax - valorMin;
+  const pasoBruto = rango / 4;
   const magnitud = Math.pow(10, Math.floor(Math.log10(pasoBruto)));
   const normalizado = pasoBruto / magnitud;
   let paso: number;
@@ -31,7 +34,12 @@ function calcularEjeY(valorMax: number) {
   else if (normalizado <= 2) paso = 2 * magnitud;
   else if (normalizado <= 5) paso = 5 * magnitud;
   else paso = 10 * magnitud;
-  return { max: Math.ceil(valorMax / paso) * paso, paso };
+
+  return {
+    min: Math.floor(valorMin / paso) * paso,
+    max: Math.ceil(valorMax / paso) * paso,
+    paso,
+  };
 }
 
 export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps) {
@@ -46,8 +54,14 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
       const fechasMs = todosPuntos.map((p) => parsearFecha(p.fecha));
       const fMin = fechasMs.length ? Math.min(...fechasMs) : 0;
       const fMax = fechasMs.length ? Math.max(...fechasMs) : 0;
-      const valorMax = Math.max(0, ...todosPuntos.map((p) => p.porcentaje));
-      const eje = calcularEjeY(valorMax);
+
+      const porcentajes = todosPuntos.map((p) => p.porcentaje);
+      // El eje incluye siempre el 0 (línea de base del seguimiento) y se
+      // estira hacia abajo si algún producto BAJÓ de precio.
+      const valorMax = Math.max(0, ...porcentajes);
+      const valorMin = Math.min(0, ...porcentajes);
+      const eje = calcularEjeY(valorMin, valorMax);
+
       const alto = height - PADDING.top - PADDING.bottom;
       const ancho = VB_ANCHO - PADDING.left - PADDING.right;
 
@@ -55,7 +69,9 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
         fMax === fMin
           ? PADDING.left + ancho / 2
           : PADDING.left + ((fechaMsVal - fMin) / (fMax - fMin)) * ancho;
-      const yS = (valor: number) => PADDING.top + alto - (valor / (eje.max || 1)) * alto;
+
+      const rangoY = eje.max - eje.min || 1;
+      const yS = (valor: number) => PADDING.top + alto - ((valor - eje.min) / rangoY) * alto;
 
       // Fechas únicas ordenadas (para el eje X y para ubicar el hover por índice)
       const setFechas = Array.from(new Set(todosPuntos.map((p) => p.fecha))).sort();
@@ -73,20 +89,25 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
     }, [seriesConDatos, height]);
 
   const ticksY = useMemo(() => {
-    const cant = Math.round(ejeY.max / ejeY.paso);
-    return Array.from({ length: cant + 1 }, (_, i) => i * ejeY.paso);
+    const cant = Math.round((ejeY.max - ejeY.min) / ejeY.paso);
+    return Array.from({ length: cant + 1 }, (_, i) => ejeY.min + i * ejeY.paso);
   }, [ejeY]);
 
-  // Elegimos ~6 etiquetas de fecha como máximo para no saturar el eje X.
+  // Etiquetas del eje X a intervalos PAREJOS de meses (3, 6 o 12 según el
+  // rango), contando desde el último mes hacia atrás — así la fecha final
+  // siempre queda etiquetada y los saltos entre etiquetas son iguales.
   const ticksX = useMemo(() => {
     if (fechasUnion.length <= 6) return fechasUnion;
-    const salto = Math.ceil(fechasUnion.length / 6);
-    const elegidas = fechasUnion.filter((_, i) => i % salto === 0);
-    // Aseguramos que el último punto real esté siempre presente, pero
-    // reemplazando la última etiqueta elegida en vez de agregar una nueva
-    // al lado (que quedaría pegada y se solaparía con el texto).
-    if (elegidas.at(-1) !== fechasUnion.at(-1)) {
-      elegidas[elegidas.length - 1] = fechasUnion.at(-1)!;
+
+    // Elegimos el salto que deje ~6 etiquetas o menos.
+    const SALTOS_POSIBLES = [1, 2, 3, 6, 12, 24];
+    const salto =
+      SALTOS_POSIBLES.find((s) => Math.ceil(fechasUnion.length / s) <= 6) ??
+      Math.ceil(fechasUnion.length / 6);
+
+    const elegidas: string[] = [];
+    for (let i = fechasUnion.length - 1; i >= 0; i -= salto) {
+      elegidas.unshift(fechasUnion[i]);
     }
     return elegidas;
   }, [fechasUnion]);
@@ -150,6 +171,21 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
           role="img"
           aria-label="Gráfico de evolución de precios en el tiempo"
         >
+          {/* Recorte del área de dibujo: las LÍNEAS no pueden salirse del
+              cuadro (si un producto se va de escala, se corta en el borde),
+              pero las etiquetas de valor quedan fuera del clip para poder
+              respirar en el margen derecho. */}
+          <defs>
+            <clipPath id="recorte-area-grafico">
+              <rect
+                x={PADDING.left}
+                y={PADDING.top}
+                width={anchoGrafico}
+                height={altoGrafico}
+              />
+            </clipPath>
+          </defs>
+
           {/* Gridlines horizontales */}
           {ticksY.map((valor) => (
             <line
@@ -158,7 +194,7 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
               x2={VB_ANCHO - PADDING.right}
               y1={yScale(valor)}
               y2={yScale(valor)}
-              stroke="var(--color-slate-200)"
+              stroke={valor === 0 ? 'var(--color-slate-300)' : 'var(--color-slate-200)'}
               strokeWidth={1}
             />
           ))}
@@ -221,37 +257,45 @@ export function GraficoInflacion({ series, height = 240 }: GraficoInflacionProps
 
             return (
               <g key={serie.id}>
-                <path
-                  d={path}
-                  fill="none"
-                  stroke={serie.color}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeDasharray={serie.estiloLinea === 'punteado' ? '7,5' : undefined}
-                />
-                {ultimo && (
-                  <>
-                    <circle cx={ultimo.x} cy={ultimo.y} r={5} fill={serie.color} stroke="white" strokeWidth={2} />
-                    {(() => {
-                      const etiqueta = etiquetasFinales.find((e) => e.id === serie.id);
-                      if (!etiqueta) return null;
-                      return (
-                        <text
-                          x={etiqueta.x}
-                          y={etiqueta.y}
-                          textAnchor="end"
-                          fontSize={11}
-                          fontWeight={700}
-                          className="fill-slate-700"
-                        >
-                          {ultimoValor > 0 ? '+' : ''}
-                          {ultimoValor}%
-                        </text>
-                      );
-                    })()}
-                  </>
-                )}
+                <g clipPath="url(#recorte-area-grafico)">
+                  <path
+                    d={path}
+                    fill="none"
+                    stroke={serie.color}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeDasharray={serie.estiloLinea === 'punteado' ? '7,5' : undefined}
+                  />
+                  {ultimo && (
+                    <circle
+                      cx={ultimo.x}
+                      cy={ultimo.y}
+                      r={5}
+                      fill={serie.color}
+                      stroke="white"
+                      strokeWidth={2}
+                    />
+                  )}
+                </g>
+                {ultimo &&
+                  (() => {
+                    const etiqueta = etiquetasFinales.find((e) => e.id === serie.id);
+                    if (!etiqueta) return null;
+                    return (
+                      <text
+                        x={etiqueta.x}
+                        y={etiqueta.y}
+                        textAnchor="end"
+                        fontSize={11}
+                        fontWeight={700}
+                        className="fill-slate-700"
+                      >
+                        {ultimoValor > 0 ? '+' : ''}
+                        {ultimoValor}%
+                      </text>
+                    );
+                  })()}
               </g>
             );
           })}
