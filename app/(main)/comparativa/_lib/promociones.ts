@@ -20,9 +20,28 @@ export interface PromoAplicada {
   ahorro: number;
 }
 
+/** Una promo posible de un súper (aplicada o no), para el desplegable "Ver todas". */
+export interface AlternativaPromo {
+  entidad: string;
+  porcentaje: number;
+  tope: number | null;
+  tope_periodo: PromocionBancaria['tope_periodo'];
+  /** Días en que vale: 1 = lunes ... 7 = domingo */
+  dias: number[];
+  /** true si vale el día elegido */
+  valeElDia: boolean;
+  /** Cuánto ahorra. null si no vale el día elegido */
+  ahorro: number | null;
+  /** Total a pagar con esta promo. null si no vale el día elegido */
+  totalConPromo: number | null;
+  /** true si es la que se está aplicando */
+  aplicada: boolean;
+}
+
 export interface SucursalConPromo extends SucursalCarritoComparada {
   totalSinPromo: number;
   promoAplicada: PromoAplicada | null;
+  alternativas: AlternativaPromo[];
 }
 
 export interface OpcionesPromo {
@@ -72,46 +91,94 @@ export function usePromocionesBancarias(activo: boolean) {
 }
 
 /**
- * Busca la promo de descuento que más ahorro le da a esta sucursal.
- * Solo cuentan las que valen en sucursal física, ese día y (si el usuario
- * eligió sus medios de pago) con alguno de ellos.
+ * Arma la lista de todas las promos de descuento en sucursal de este súper
+ * (si el usuario eligió sus medios de pago, solo las de esos medios) y marca
+ * cuál es la que más ahorro da el día elegido.
  */
-function mejorPromo(
+function calcularPromos(
   sucursal: SucursalCarritoComparada,
   promos: PromocionBancaria[],
   { dia, misMedios }: OpcionesPromo,
-): PromoAplicada | null {
-  let mejor: PromoAplicada | null = null;
-
+): { mejor: PromoAplicada | null; alternativas: AlternativaPromo[] } {
+  // Juntamos las promos iguales (mismo banco, porcentaje y tope) que solo cambian de día
+  const agrupadas = new Map<string, PromocionBancaria>();
   for (const p of promos) {
     if (p.id_comercio !== sucursal.id_comercio || p.id_bandera !== sucursal.id_bandera) continue;
     if (p.tipo_promo !== 'descuento' || !p.porcentaje) continue;
     if (p.canal === 'online') continue;
-    if (!p.dias.includes(dia)) continue;
     if (misMedios && !misMedios.includes(p.entidad) && !ENTIDADES_PARA_TODOS.includes(p.entidad)) continue;
 
-    // El tope se toma como límite para esta compra (si es semanal o mensual,
-    // no sabemos si el usuario ya lo usó antes)
-    const descuento = (sucursal.total * p.porcentaje) / 100;
-    const ahorro = Math.round(p.tope != null ? Math.min(descuento, p.tope) : descuento);
-
-    if (!mejor || ahorro > mejor.ahorro) {
-      mejor = {
-        entidad: p.entidad,
-        porcentaje: p.porcentaje,
-        tope: p.tope,
-        tope_periodo: p.tope_periodo,
-        ahorro,
-      };
+    const clave = `${p.entidad}|${p.porcentaje}|${p.tope ?? ''}|${p.tope_periodo ?? ''}`;
+    const existente = agrupadas.get(clave);
+    if (existente) {
+      existente.dias = [...new Set([...existente.dias, ...p.dias])];
+    } else {
+      agrupadas.set(clave, { ...p, dias: [...p.dias] });
     }
   }
-  return mejor;
+
+  const alternativas: AlternativaPromo[] = [];
+
+  for (const p of agrupadas.values()) {
+    const valeElDia = p.dias.includes(dia);
+    let ahorro: number | null = null;
+    let totalConPromo: number | null = null;
+
+    if (valeElDia) {
+      // El tope se toma como límite para esta compra (si es semanal o mensual,
+      // no sabemos si el usuario ya lo usó antes)
+      const descuento = (sucursal.total * (p.porcentaje ?? 0)) / 100;
+      ahorro = Math.round(p.tope != null ? Math.min(descuento, p.tope) : descuento);
+      totalConPromo = sucursal.total - ahorro;
+    }
+
+    alternativas.push({
+      entidad: p.entidad,
+      porcentaje: p.porcentaje ?? 0,
+      tope: p.tope,
+      tope_periodo: p.tope_periodo,
+      dias: p.dias,
+      valeElDia,
+      ahorro,
+      totalConPromo,
+      aplicada: false,
+    });
+  }
+
+  // La que se aplica es la que más ahorra entre las que valen ese día
+  let indiceMejor = -1;
+  alternativas.forEach((a, i) => {
+    if (a.ahorro == null) return;
+    if (indiceMejor === -1 || a.ahorro > (alternativas[indiceMejor].ahorro ?? 0)) indiceMejor = i;
+  });
+
+  let mejor: PromoAplicada | null = null;
+  if (indiceMejor !== -1) {
+    const a = alternativas[indiceMejor];
+    a.aplicada = true;
+    mejor = {
+      entidad: a.entidad,
+      porcentaje: a.porcentaje,
+      tope: a.tope,
+      tope_periodo: a.tope_periodo,
+      ahorro: a.ahorro ?? 0,
+    };
+  }
+
+  // Orden: primero las que valen ese día (de más a menos ahorro), después las grises
+  alternativas.sort((a, b) => {
+    if (a.valeElDia !== b.valeElDia) return a.valeElDia ? -1 : 1;
+    if (a.valeElDia) return (b.ahorro ?? 0) - (a.ahorro ?? 0);
+    return b.porcentaje - a.porcentaje;
+  });
+
+  return { mejor, alternativas };
 }
 
 /**
  * Igual que obtenerTopTresCadenasMasBaratas, pero aplicando antes la mejor
  * promo bancaria de cada sucursal. Así el ranking ya refleja lo que el
- * usuario pagaría de verdad.
+ * usuario pagaría de verdad. Además devuelve todas las promos de cada súper.
  */
 export function obtenerTopTresConPromos(
   gruposLista: GrupoLista[],
@@ -120,12 +187,13 @@ export function obtenerTopTresConPromos(
   opciones: OpcionesPromo,
 ): SucursalConPromo[] {
   const conPromo: SucursalConPromo[] = calcularTotalesPorSucursal(gruposLista, criterio).map((s) => {
-    const promo = mejorPromo(s, promos, opciones);
+    const { mejor, alternativas } = calcularPromos(s, promos, opciones);
     return {
       ...s,
       totalSinPromo: s.total,
-      total: promo ? s.total - promo.ahorro : s.total,
-      promoAplicada: promo,
+      total: mejor ? s.total - mejor.ahorro : s.total,
+      promoAplicada: mejor,
+      alternativas,
     };
   });
 
