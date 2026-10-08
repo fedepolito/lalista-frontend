@@ -8,7 +8,7 @@ import {
   type CriterioComparacion,
   type SucursalCarritoComparada,
 } from './Funciones-comparacion';
-
+import { fechaDelDiaElegido, promoVigenteEnFecha } from '@/app/_lib/utils/vigenciaPromos';
 // Promos que valen para cualquiera, sin importar qué tarjeta tenga
 export const ENTIDADES_PARA_TODOS = ['Todos los medios de pago'];
 
@@ -101,11 +101,13 @@ function calcularPromos(
   { dia, misMedios }: OpcionesPromo,
 ): { mejor: PromoAplicada | null; alternativas: AlternativaPromo[] } {
   // Juntamos las promos iguales (mismo banco, porcentaje y tope) que solo cambian de día
+  const fechaElegida = fechaDelDiaElegido(dia);
   const agrupadas = new Map<string, PromocionBancaria>();
   for (const p of promos) {
     if (p.id_comercio !== sucursal.id_comercio || p.id_bandera !== sucursal.id_bandera) continue;
     if (p.tipo_promo !== 'descuento' || !p.porcentaje) continue;
     if (p.canal === 'online') continue;
+    if (!promoVigenteEnFecha(p, fechaElegida)) continue;
     if (misMedios && !misMedios.includes(p.entidad) && !ENTIDADES_PARA_TODOS.includes(p.entidad)) continue;
 
     const clave = `${p.entidad}|${p.porcentaje}|${p.tope ?? ''}|${p.tope_periodo ?? ''}`;
