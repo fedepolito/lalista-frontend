@@ -115,10 +115,14 @@ const FILA_DESLIZABLE =
 function FilaPromo({ promo }: { promo: PromoAgrupada }) {
   const [abierta, setAbierta] = useState(false);
 
+  // La comparativa solo aplica descuentos en sucursal
+  const noSeAplicaEnComparativa = promo.tipo_promo === 'cuotas' || promo.canal === 'online';
+
   const etiquetas = [
     promo.canal ? CANAL[promo.canal] : null,
     promo.formatos.length ? promo.formatos.join(' · ') : null,
     promo.tipo_tarjeta ? TARJETA[promo.tipo_tarjeta] : null,
+    noSeAplicaEnComparativa ? 'No se aplica en la comparativa' : null,
   ].filter(Boolean) as string[];
 
   const detalle = [

@@ -36,6 +36,13 @@ function textoDias(dias: number[]): string {
   return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
 }
 
+/** Aviso para topes que no son por compra: no sabemos si el usuario ya los usó. */
+function avisoTope(periodo: string | null): string | null {
+  if (periodo === 'semana') return 'Tope semanal: si ya lo usaste, el ahorro puede ser menor';
+  if (periodo === 'mes') return 'Tope mensual: si ya lo usaste, el ahorro puede ser menor';
+  return null;
+}
+
 interface FiltroProps {
   activo: boolean;
   onActivo: (valor: boolean) => void;
@@ -120,7 +127,9 @@ export function FiltroPromociones({
               )}
             </div>
           )}
-
+          <p className="text-xs text-slate-500">
+            Se aplican descuentos válidos en sucursal. Las promos online y en cuotas se ven en Promociones.
+          </p>
           <Link href="/promociones" className="inline-block text-xs font-semibold text-primary-500 hover:underline">
             Ver todas las promociones del día →
           </Link>
@@ -178,6 +187,12 @@ function FilaAlternativa({ alt, diaElegido }: { alt: AlternativaPromo; diaElegid
               ? `Tope $${formatearPrecio(alt.tope)} ${PERIODO_TOPE[alt.tope_periodo ?? 'compra']}`
               : 'Sin tope'}
           </p>
+          {alt.tope != null && avisoTope(alt.tope_periodo) && (
+            <p className="text-amber-700">{avisoTope(alt.tope_periodo)}</p>
+          )}
+          {alt.soloAlgunasSucursales && (
+            <p className="text-amber-700">Válida solo en algunas sucursales: revisá las condiciones</p>
+          )}
         </div>
         {alt.aplicada && (
           <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
@@ -221,6 +236,12 @@ export function DetallePromo({ sucursal, dia }: { sucursal: SucursalConPromo; di
             {promo.tope != null &&
               ` · Tope $${formatearPrecio(promo.tope)} ${PERIODO_TOPE[promo.tope_periodo ?? 'compra']}`}
           </p>
+                    {promo.tope != null && avisoTope(promo.tope_periodo) && (
+            <p className="mt-0.5 text-amber-700">{avisoTope(promo.tope_periodo)}</p>
+          )}
+          {promo.soloAlgunasSucursales && (
+            <p className="mt-0.5 text-amber-700">Válida solo en algunas sucursales: revisá las condiciones</p>
+          )}
         </div>
       ) : (
         <p className="px-3 text-xs text-slate-500">Sin promociones bancarias para este día.</p>

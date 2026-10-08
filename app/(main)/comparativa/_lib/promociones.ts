@@ -9,6 +9,7 @@ import {
   type SucursalCarritoComparada,
 } from './Funciones-comparacion';
 import { fechaDelDiaElegido, promoVigenteEnFecha } from '@/app/_lib/utils/vigenciaPromos';
+
 // Promos que valen para cualquiera, sin importar qué tarjeta tenga
 export const ENTIDADES_PARA_TODOS = ['Todos los medios de pago'];
 
@@ -18,6 +19,20 @@ export interface PromoAplicada {
   tope: number | null;
   tope_periodo: PromocionBancaria['tope_periodo'];
   ahorro: number;
+  /** true si solo vale en provincias o sucursales puntuales (para avisar) */
+  soloAlgunasSucursales: boolean;
+}
+
+/**
+ * true si las condiciones nombran provincias o sucursales puntuales
+ * ("en las provincias de...", "excluye sucursal...", "sucursales físicas: ...").
+ * Frases comunes como "Exclusivo en sucursales" no cuentan.
+ */
+export function valeSoloEnAlgunasSucursales(condiciones: string | null): boolean {
+  if (!condiciones) return false;
+  return /en las provincias de|excluye(n)? (a )?(las )?(sucursal|sucursales|tienda|tiendas)|sucursales f[ií]sicas:/i.test(
+    condiciones,
+  );
 }
 
 /** Una promo posible de un súper (aplicada o no), para el desplegable "Ver todas". */
@@ -36,6 +51,8 @@ export interface AlternativaPromo {
   totalConPromo: number | null;
   /** true si es la que se está aplicando */
   aplicada: boolean;
+  /** true si solo vale en provincias o sucursales puntuales (para avisar) */
+  soloAlgunasSucursales: boolean;
 }
 
 export interface SucursalConPromo extends SucursalCarritoComparada {
@@ -100,9 +117,10 @@ function calcularPromos(
   promos: PromocionBancaria[],
   { dia, misMedios }: OpcionesPromo,
 ): { mejor: PromoAplicada | null; alternativas: AlternativaPromo[] } {
-  // Juntamos las promos iguales (mismo banco, porcentaje y tope) que solo cambian de día
   const fechaElegida = fechaDelDiaElegido(dia);
-  const agrupadas = new Map<string, PromocionBancaria>();
+
+  // Juntamos las promos iguales (mismo banco, porcentaje y tope) que solo cambian de día
+  const agrupadas = new Map<string, { promo: PromocionBancaria; soloAlgunas: boolean }>();
   for (const p of promos) {
     if (p.id_comercio !== sucursal.id_comercio || p.id_bandera !== sucursal.id_bandera) continue;
     if (p.tipo_promo !== 'descuento' || !p.porcentaje) continue;
@@ -111,17 +129,19 @@ function calcularPromos(
     if (misMedios && !misMedios.includes(p.entidad) && !ENTIDADES_PARA_TODOS.includes(p.entidad)) continue;
 
     const clave = `${p.entidad}|${p.porcentaje}|${p.tope ?? ''}|${p.tope_periodo ?? ''}`;
+    const soloAlgunas = valeSoloEnAlgunasSucursales(p.condiciones);
     const existente = agrupadas.get(clave);
     if (existente) {
-      existente.dias = [...new Set([...existente.dias, ...p.dias])];
+      existente.promo.dias = [...new Set([...existente.promo.dias, ...p.dias])];
+      existente.soloAlgunas = existente.soloAlgunas || soloAlgunas;
     } else {
-      agrupadas.set(clave, { ...p, dias: [...p.dias] });
+      agrupadas.set(clave, { promo: { ...p, dias: [...p.dias] }, soloAlgunas });
     }
   }
 
   const alternativas: AlternativaPromo[] = [];
 
-  for (const p of agrupadas.values()) {
+  for (const { promo: p, soloAlgunas } of agrupadas.values()) {
     const valeElDia = p.dias.includes(dia);
     let ahorro: number | null = null;
     let totalConPromo: number | null = null;
@@ -144,6 +164,7 @@ function calcularPromos(
       ahorro,
       totalConPromo,
       aplicada: false,
+      soloAlgunasSucursales: soloAlgunas,
     });
   }
 
@@ -164,6 +185,7 @@ function calcularPromos(
       tope: a.tope,
       tope_periodo: a.tope_periodo,
       ahorro: a.ahorro ?? 0,
+      soloAlgunasSucursales: a.soloAlgunasSucursales,
     };
   }
 
